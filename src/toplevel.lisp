@@ -251,6 +251,22 @@
    write-line write-sequence write-string write-to-string y-or-n-p
    yes-or-no-p zerop))
 
+(export
+ '(
+*root*
+create-class
+delete-property
+in
+js-instance-of-p
+js-null-p
+make-new
+map-for-in
+new
+objectp
+oget
+oset
+) "JSCL")
+
 (setq *package* *user-package*)
 
 
