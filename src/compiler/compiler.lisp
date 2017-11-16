@@ -1434,6 +1434,35 @@
 (define-compilation %js-internal (name)
   `(internal ,name))
 
+(define-builtin create-class (class super props)
+    `(var (,class
+           (call
+            (function (|superParameter|)
+               (var (|props| (object ,@props)))
+               (named-function ,class ()
+                 (call-internal |classCallCheck| |this| ,class)
+                 (var (|_this|
+                        (method-call
+                          (call-internal |possibleConstructorReturn|
+                                         |this|
+                                         (or (get ,class "__proto__")
+                                             (method-call |Object| "getPrototypeOf" ,class)))
+                          "call"
+                          |this|)))
+                 (var |i|)
+                 (for ((= |i| 0) (< |i| (get |props| "length")) (post++ |i|))
+                   (var (|descriptor| (property |props| |i|)))
+                   (if (in "value" |descriptor|)
+                       (if (=== (typeof (get |descriptor| "value")) "function")
+                           (= (property |_this| (get |descriptor| "key"))
+                              (method-call (get |descriptor| "value") "bind" |this|))
+                           (= (property |_this| (get |descriptor| "key"))
+                              (get |descriptor| "value")))))
+                 (return |_this|))
+               (call-internal |inherits| ,class |superParameter|)
+               (call-internal |createClass| ,class |props|)
+               (return ,class))
+            ,super))))
 
 ;; Catch any Javascript exception. Note that because all non-local
 ;; exit are based on try-catch-finally, it will also catch them. We
