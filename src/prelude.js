@@ -282,6 +282,22 @@ internals.isNLX = function(x){
 
 // ES6 Classes support
 
+
+internals.typeof =
+  typeof Symbol === "function" && typeof Symbol.iterator === "symbol"
+    ? function(obj) {
+        return typeof obj;
+      }
+    : function(obj) {
+        return obj &&
+        typeof Symbol === "function" &&
+        obj.constructor === Symbol &&
+        obj !== Symbol.prototype
+          ? "symbol"
+          : typeof obj;
+      };
+
+
 internals.createClass = function (){
     function defineProperties(target, props) {
         for (var i = 0; i < props.length; i++) {
@@ -311,11 +327,19 @@ internals.classCallCheck = function (instance, Constructor) {
     }
 }
 
-internals.possibleConstructorReturn = function (self, call) {
-    if (!self) {
-        throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
-    }
-    return call && (typeof call === "object" || typeof call === "function") ? call : self;
+
+
+internals.possibleConstructorReturn = function(self, call) {
+  if (!self) {
+    throw new ReferenceError(
+      "this hasn't been initialised - super() hasn't been called"
+    );
+  }
+  return call &&
+  ((typeof call === "undefined" ? "undefined" : internals.typeof(call)) === "object" ||
+    typeof call === "function")
+    ? call
+    : self;
 }
 
 internals.inherits = function (subClass, superClass) {

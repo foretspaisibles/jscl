@@ -472,6 +472,40 @@
                                  (convert-block `((block ,block ,@body)) t)
                                  (convert-block body t)))))))))
 
+(defun compile-method (ll body &key name block)
+  (multiple-value-bind (required-arguments
+                        optional-arguments
+                        keyword-arguments
+                        rest-argument)
+      (parse-lambda-list ll)
+    (multiple-value-bind (body decls documentation)
+        (parse-body body :declarations t :docstring t)
+      (declare (ignore decls documentation))
+      (let ((n-required-arguments (length required-arguments))
+            (n-optional-arguments (length optional-arguments))
+            (*environment* (extend-local-env
+                            (append (ensure-list rest-argument)
+                                    required-arguments
+                                    optional-arguments
+                                    keyword-arguments
+                                    (ll-svars ll)))))
+
+        `(method ,name
+                 ,(mapcar (lambda (x)
+                                       (translate-variable x))
+                                     (append required-arguments optional-arguments))
+                 ;; Check number of arguments
+                 ,(lambda-check-argument-count n-required-arguments
+                                               n-optional-arguments
+                                               (or rest-argument keyword-arguments))
+                 ,(compile-lambda-optional ll)
+                 ,(compile-lambda-rest ll)
+                 ,(compile-lambda-parse-keywords ll)
+                 ,(when (string/= "constructor" name) (bind-this))
+                 ,(let ((*multiple-value-p* nil))
+                    (if block
+                        (convert-block `((block ,block ,@body)) (string/= "constructor" name))
+                        (convert-block body (string/= "constructor" name)))))))))
 
 (defun setq-pair (var val)
   (unless (symbolp var)
@@ -1337,6 +1371,11 @@
 
 ;;; Javascript FFI
 
+(define-raw-builtin super (&rest args)
+  `(progn
+     (call |super| ,@(mapcar #'convert args))
+     ,(bind-this)))
+
 (define-builtin new ()
   '(object))
 
@@ -1434,35 +1473,13 @@
 (define-compilation %js-internal (name)
   `(internal ,name))
 
-(define-builtin create-class (class super props)
-    `(var (,class
-           (call
-            (function (|superParameter|)
-               (var (|props| (object ,@props)))
-               (named-function ,class ()
-                 (call-internal |classCallCheck| |this| ,class)
-                 (var (|_this|
-                        (method-call
-                          (call-internal |possibleConstructorReturn|
-                                         |this|
-                                         (or (get ,class "__proto__")
-                                             (method-call |Object| "getPrototypeOf" ,class)))
-                          "call"
-                          |this|)))
-                 (var |i|)
-                 (for ((= |i| 0) (< |i| (get |props| "length")) (post++ |i|))
-                   (var (|descriptor| (property |props| |i|)))
-                   (if (in "value" |descriptor|)
-                       (if (=== (typeof (get |descriptor| "value")) "function")
-                           (= (property |_this| (get |descriptor| "key"))
-                              (method-call (get |descriptor| "value") "bind" |this|))
-                           (= (property |_this| (get |descriptor| "key"))
-                              (get |descriptor| "value")))))
-                 (return |_this|))
-               (call-internal |inherits| ,class |superParameter|)
-               (call-internal |createClass| ,class |props|)
-               (return ,class))
-            ,super))))
+(define-compilation %create-class (class super &rest methods)
+  (let (compiled-methods)
+    (dolist (method methods)
+      (destructuring-bind (name ll &rest body) method
+        (push (compile-method ll body :name name)
+         compiled-methods)))
+    `(class ,class ,super ,@compiled-methods)))
 
 ;; Catch any Javascript exception. Note that because all non-local
 ;; exit are based on try-catch-finally, it will also catch them. We

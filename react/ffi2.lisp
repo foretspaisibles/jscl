@@ -266,17 +266,21 @@
   ((special
     :documentation "Indicates a special object.")))
 
+
+
+
+
 ;;; Test
 
-(in-package :jscl)
+;; (in-package :jscl)
 
-(defparameter *sexp-ffi-example*
-  '(create-class (%js-vref "MyArray" t) (%js-vref "Array" t) nil))
+;; (defparameter *sexp-ffi-example*
+;;   '(create-class (%js-vref "MyArray" t) (%js-vref "Array" t) nil))
 
-(defun ffi-example ()
-  (with-compilation-environment
-    (compile-toplevel *sexp-ffi-example*)))
+;; (defun ffi-example ()
+;;   (with-compilation-environment
+;;     (compile-toplevel *sexp-ffi-example*)))
 
-(defun my-compile (sexp)
-  (with-compilation-environment
-    (compile-toplevel sexp)))
+;; (defun my-compile (sexp)
+;;   (with-compilation-environment
+;;     (compile-toplevel sexp)))

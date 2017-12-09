@@ -248,17 +248,30 @@
                          (merge-pathnames "repl-node.js" *base-directory*)
                          :shebang t)))
 
-(defun react ()
+(defun react-1 ()
   (compile-project
    (list "react"
          (list
           (source-pathname "react.lisp" :directory '(:relative "react"))
-          (source-pathname "example.lisp" :directory '(:relative "react")))
+          (source-pathname "example-1.lisp" :directory '(:relative "react")))
          (merge-pathnames
           (make-pathname
-           :defaults "example.js"
+           :defaults "example-1.js"
            :directory '(:relative "react"))
           *base-directory*))))
+
+(defun react-2 ()
+  (compile-project
+   (list "react"
+         (list
+          (source-pathname "react.lisp" :directory '(:relative "react"))
+          (source-pathname "example-2.lisp" :directory '(:relative "react")))
+         (merge-pathnames
+          (make-pathname
+           :defaults "example-2.js"
+           :directory '(:relative "react"))
+          *base-directory*))))
+
 
 (defun display-package-error (&optional bootstrap)
   (compile-project

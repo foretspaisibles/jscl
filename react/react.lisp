@@ -1,4 +1,4 @@
-(/debug "loading react.lisp!")
+(jscl::/debug "loading react.lisp!")
 
 (defpackage :react
   (:use :common-lisp :jscl)
@@ -71,14 +71,15 @@
 ;;; Extender
 
 (eval-when (:compile-toplevel :load-toplevel)
-  (defun js-identifier-from-lisp-identifier (name)
+  (defun js-identifier-from-lisp-identifier (name &optional capitalize)
     "Convert a Lisp identifier to a JavaScript camelCase identifier."
     (let ((words
             (loop for i = 0 then (+ 1 j)
                   as j = (position #\- name :start i)
                   collect (subseq name i j)
                   while j)))
-      (apply #'jscl::concat (string-downcase (car words))
+      (apply #'jscl::concat
+             (if capitalize (string-capitalize (car words)) (string-downcase (car words)))
              (mapcar #'string-capitalize (cdr words))))))
 
 (defun make-jsobj-keyname (key)
@@ -105,7 +106,6 @@
           ((null tail) alist)
         (push (list (first tail) (second tail)) alist)))))
 
-
 ;;; DOM, Elements and Components
 
 (defun dom-render (element location)
@@ -118,6 +118,13 @@ the matching element is used as a rendering location."
      (funcall #j:ReactDOM:render element (#j:document:getElementById location)))
     (t
      (funcall #j:ReactDOM:render element location))))
+
+(defun %create-element (element &rest props-and-children)
+  (let ((actual-args
+          (if (funcall ((jscl::oget element "hasOwnProperty" "bind") element) "jscl_original")
+              (cons (jscl::get element "jscl_original") props-and-children)
+              (cons element props-and-children))))
+    (apply (jscl::%js-vref "React.createElement") actual-args)))
 
 (defun create-element (element &rest props-and-children)
   "Create a React ELEMENT with the given PROPS and CHILDREN.
@@ -139,70 +146,62 @@ The PROPS-AND-CHILDREN argument is polymorphic."
          (push (first tail) props))))
     (cond
       ((null children)
-       (apply #j:_jsclReact_createElement
+       (apply #'%create-element
               (list element (apply #'make-jsobj props))))
       ((and (eql (length children) 1)(stringp (first children)))
-       (apply #j:_jsclReact_createElement
+       (apply #'%create-element
               (list element (apply #'make-jsobj props) (first children))))
       ((and (consp children)(consp (car children)))
-       (apply #j:_jsclReact_createElement
+       (apply #'%create-element
               (list element (apply #'make-jsobj props) (apply #'vector (car children)))))
       ((consp children)
-       (apply #j:_jsclReact_createElement
+       (apply #'%create-element
               (list element (apply #'make-jsobj props) (apply #'vector children))))
       (t (progn
            (/debug "Error: Unsupported polymorphic PROPS-AND-CHILDREN.")
            (/log props-and-children)
            (error "Unsuppored polymorphic PROPS-AND-CHILDREN."))))))
 
-(defun ll-create-component (class-name super slots)
-  "Low-level function to create a react class with the given slots."
-  (flet ((make-prop (key value)
-           (cond
-             ((stringp key)
-              (make-jsobj :key (js-identifier-from-lisp-identifier key)
-                          :value value))
-             ((symbolp key)
-              (make-jsobj :key (js-identifier-from-lisp-identifier (symbol-name key))
-                          :value value))
-             (t (progn
-                  (/debug "Error: Unsupported polymorphic KEY.")
-                  (/log key)
-                  (error "Unsupported polymorphic KEY."))))))
-    (let ((actual-super (if (null super) #j:React:Component super))
-          props)
-      (do ((tail slots (cddr tail)))
-          ((null tail) props)
-        (case (first tail)
-          ((:get-initial-state "getInitialState")
-           (push (make-prop "state" (funcall (second tail))) props))
-          ((:style "style")
-           (push (make-prop "style" (apply #'make-jsobj (second tail))) props))
-          (otherwise
-           (push (make-prop (first tail) (second tail)) props))))
-      (funcall #j:_jsclReact_createComponent class-name actual-super (apply #'vector props)))))
 
+(defun %set-state (component partial-state)
+  (funcall ((jscl::oget component "setState" "bind") component) partial-state))
+
+(defun %make-new-object () (jscl::make-new #j:Object))
+
+(defun %define-react-component-edit-super (body after-super-forms)
+  (let ((insert after-super-forms))
+    (labels
+        ((traverse (expr)
+           (cond
+             ((null insert) expr)
+             ((null expr) expr)
+             ((not (consp expr)) expr)
+             ((eq (car expr) 'jscl::super)
+              (let ((answer `(let () ,expr ,@insert nil)))
+                (setf insert nil)
+                answer))
+             (t
+              (cons (traverse (car expr)) (traverse (cdr expr)))))))
+      (traverse body))))
 
 (defmacro define-react-component
     (name-and-options props-slots state-slots &body method-slots)
 
   (let* ((%props (gensym "PROPS"))
          (%this (gensym "THIS"))
-         (%get-initial-state (gensym "GET-INITIAL-STATE"))
-         (%react-internal (gensym "REACT-INTERNAL"))
          (name-and-options (jscl::ensure-list name-and-options))
          (name (first name-and-options))
-         (name-string (symbol-name name))
-         (options (alist-from-plist (rest name-and-options)))
+         (name-string (js-identifier-from-lisp-identifier (symbol-name name) t))
+         (options (apply #'alist-from-plist (rest name-and-options)))
          (docstring (if (assoc :documentation options)
                         (second (assoc :documentation options))
                         (format nil "I am too lazy to write a meaningful documentation for `~A'." name-string)))
          (super (if (assoc :super options)
                     (second (assoc :super options))
-                    nil))
+                    "React.Component"))
          props-bindings
          state-bindings
-         component-slots
+         class-slots
          set-initial-state-body)
 
     ;; Prepare property-slots bindings
@@ -234,29 +233,28 @@ The PROPS-AND-CHILDREN argument is polymorphic."
          state-bindings)
         (push
          `(,set-state (value)
-                      (#j:_jsclReact_setState ,%this (make-jsobj ,state-jsname value)))
+            (%set-state ,%this (make-jsobj ,state-jsname value)))
          state-bindings)
         (push
-         `(setf (jscl::oget initial-state ,state-jsname) ,state-initform)
+         `(setf (jscl::oget jscl::this "state" ,state-jsname) ,state-initform)
          set-initial-state-body)))
 
     ;; Prepare method bodies
-    (flet ((make-name (name &rest args-and-body)
-             (js-identifier-from-lisp-identifier (symbol-name name)))
-
-           (event-handler-p (name args &rest body)
+    (flet ((event-handler-p (name args &rest body)
+             (declare (ignore name body))
              (and (eql (length args) 1)
-                  (eql (symbol-name (first args) "event"))))
+                  (eql (symbol-name (first args)) "event")))
 
            (make-method (name args &rest body)
-             `(lambda ,args
+             `(,(js-identifier-from-lisp-identifier (string name)) ,args
                 (let ((,%this jscl::this)
                       (,%props (jscl::oget jscl::this "props")))
                   (let ,props-bindings
                     (flet ,state-bindings ,@body)))))
 
            (make-event-handler (name args &rest body)
-             `(lambda (event)
+             (declare (ignore args))
+             `(,(js-identifier-from-lisp-identifier (string name)) (event)
                 (let ((*current-react-*event* event)
                       (,%this jscl::this)
                       (,%props (jscl::oget this "props")))
@@ -264,23 +262,35 @@ The PROPS-AND-CHILDREN argument is polymorphic."
                     (flet ,state-bindings ,@body))))))
 
       (dolist (slot method-slots)
-        (if (apply #'event-handler-p slot)
-            (push (apply #'make-event-handler slot) component-slots)
-            (push (apply #'make-method slot) component-slots))
-        (push (apply #'make-name slot) component-slots)))
+        (cond
+          ((string= "constructor" (first slot))
+           (error "Defining custom constructors for React components is not supported."))
+          ((apply #'event-handler-p slot)
+           (push (apply #'make-event-handler slot) class-slots))
+          (t
+           (push (apply #'make-method slot) class-slots)))))
 
-    (when docstring
-      (push docstring component-slots)
-      (push :documentation component-slots))
+    ;; Supply an ad-hoc constructor
+    (push `("constructor" (&rest whatever)
+             (declare (ignore whatever))
+             (jscl::super)
+             (setf (jscl::oget jscl::this "state") (jscl::new))
+             (let* ((,%props (jscl::oget jscl::this "props"))
+                    ,@props-bindings)
+               ,@set-initial-state-body))
+          class-slots)
 
-    (unless (null state-slots)
-      (push `(lambda (&rest ,%react-internal)
-               (let ((initial-state (jscl::make-new #j:Object)))
-                 ,@set-initial-state-body
-                 initial-state))
-            component-slots)
-      (push :get-initial-state component-slots))
-    `(jscl::fset ',name (ll-create-component ,name-string ,super (list ,@component-slots)))))
+    ;; TODO: Handle docstring
+    ;; (when docstring
+    ;;   (push docstring class-slots)
+    ;;   (push :documentation class-slots))
+
+    (let (body)
+      (push `(jscl::%create-class ,name-string ,super ,@class-slots) body)
+      (push `(jscl::fset ',name (jscl::%js-vref ,name-string)) body)
+      (when docstring
+        (push `(setf (jscl::oget ',name "docstring") ,docstring) body))
+      `(progn ,@(nreverse body)))))
 
 ;;; React Events
 
@@ -452,7 +462,7 @@ The PROPS-AND-CHILDREN argument is polymorphic."
   (let* ((name-string (symbol-name name))
          (reader (intern (jscl::concat "DOM-ELEMENT-" name-string)))
          (js-property (js-identifier-from-lisp-identifier name-string)))
-    `(defun ,reader (&optional (event *current-dom-element*))
-       (jscl::oget event ,js-property))))
+    `(defun ,reader (&optional (dom-element *current-dom-element*))
+       (jscl::oget dom-element ,js-property))))
 
 (%dom-element-make-reader value)

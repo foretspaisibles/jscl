@@ -113,7 +113,7 @@
                   (t
                    (return-from valid-js-identifier (values nil nil))))))
     (flet ((constitutentp (ch)
-             (or (alphanumericp ch) (member ch '(#\$ #\_)))))
+             (or (alphanumericp ch) (member ch '(#\$ #\_ #\.)))))
       (if (and (every #'constitutentp string)
                (if (plusp (length string))
                    (not (digit-char-p (char string 0)))
@@ -201,6 +201,18 @@
   (js-format ")")
   (js-stmt `(group ,@body) t))
 
+(defun js-method (name arguments &rest body)
+  (js-identifier name)
+  (js-format "(")
+  (when arguments
+    (js-identifier (car arguments))
+    (dolist (arg (cdr arguments))
+      (js-format ",")
+      (js-identifier arg)))
+  (js-format ")")
+  (js-stmt `(group ,@body) t))
+
+
 (defun check-lvalue (x)
   (unless (or (symbolp x)
               (nth-value 1 (valid-js-identifier x))
@@ -278,9 +290,7 @@
        (apply #'js-function nil args)
        (js-format ")"))
       (named-function
-       (js-format "(")
-       (apply #'js-function args)
-       (js-format ")"))
+       (apply #'js-function args))
       (t
        (labels ((low-precedence-p (op-precedence)
                   (cond
@@ -470,6 +480,19 @@
                   (js-format ",")
                   (js-var var))
                 (js-end-stmt))))
+           (class
+            (destructuring-bind (subclass superclass &rest methods) (cdr form)
+              (js-format "class ")
+              (js-identifier subclass)
+              (when superclass
+                (js-format " extends ")
+                (js-identifier superclass)
+                (js-format " "))
+              (js-format "{")
+              (dolist (method methods)
+                (apply #'js-method (rest method)))
+              (js-format "}")
+              (js-end-stmt)))
            (if
             (destructuring-bind (condition true &optional false) (cdr form)
               (js-format "if (")
