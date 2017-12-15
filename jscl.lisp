@@ -274,6 +274,7 @@
 
 
 (defun display-package-error (&optional bootstrap)
+  (declare (ignore bootstrap))
   (compile-project
    (list "display-package-error"
          (list

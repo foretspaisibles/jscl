@@ -943,8 +943,9 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
   (if (null specified-type)
       default-type
       (multiple-value-bind (a b) (subtypep specified-type required-type)
-        ;; FIXME: Uncomment when we have implemented type system and
-        ;; jscl can understand this.
+        ;; FIXME: Uncomment and un-ignore variables when we have implemented
+        ;; type system and jscl can understand this.
+        (declare (ignore a b))
         #+nil
         (cond ((not b)
                (loop-warn "LOOP couldn't verify that ~S is a subtype of the required type ~S."
